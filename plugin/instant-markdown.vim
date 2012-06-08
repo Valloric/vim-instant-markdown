@@ -1,22 +1,41 @@
-function! UpdateMarkdown()
-  if (b:im_needs_init)
-    let b:im_needs_init = 0
-    silent! exec "silent! !echo " . escape(shellescape(join(getbufline("%", 1, "$"), "\n")), "%!#") . " | instant-markdown-d &>/dev/null &"
-  endif
-  if (b:last_number_of_changes == "" || b:last_number_of_changes != b:changedtick)
-    let b:last_number_of_changes = b:changedtick
-    let current_buffer = join(getbufline("%", 1, "$"), "\n")
-    silent! exec "silent! !echo " . escape(shellescape(current_buffer), "%!#") . " | curl -X PUT -T - http://localhost:8090/ &>/dev/null &"
-  endif
-endfunction
-function! OpenMarkdown()
-  let b:last_number_of_changes = ""
-  let b:im_needs_init = 1
-endfunction
-function! CloseMarkdown()
-  silent! exec "silent! !curl -s -X DELETE http://localhost:8090/ &>/dev/null &"
+function! IM_OpenMarkdown()
+   if (g:im_server_state == "notstarted")
+      call IM_StartServer()
+   endif
+   call IM_SendMarkdown()
 endfunction
 
-autocmd CursorMoved,CursorMovedI,CursorHold,CursorHoldI *.{md,mkd,mkdn,mark*} silent call UpdateMarkdown()
-autocmd BufWinLeave *.{md,mkd,mkdn,mark*} silent call CloseMarkdown()
-autocmd BufWinEnter *.{md,mkd,mkdn,mark*} silent call OpenMarkdown()
+function! IM_StartServer()
+   silent! exec "!echo " . IM_GetBufferAsShellString() . " | instant-markdown-d &>/dev/null &"
+   let g:im_server_state = "started"
+endfunction
+
+function! IM_UpdateMarkdown()
+   if (g:im_last_number_of_changes == -1 || g:im_last_number_of_changes != b:changetick)
+      g:im_last_number_of_changes = b:changetick
+      call IM_SendMarkdown()
+   endif
+endfunction
+
+function! IM_SendMarkdown()
+   silent! exec "!echo " . IM_GetBufferAsShellString() . " | curl -X PUT -T - http://localhost:8090/ &>/dev/null &"
+endfunction
+
+function! IM_GetBufferAsShellString()
+   let current_buffer = join(getbufline("%", 1, "$"), "\n")
+   return escape(shellescape(current_buffer), "%!#")
+endfunction
+
+function! IM_CloseServer()
+   if (g:im_server_state == "started")
+      silent! exec "silent! !curl -s -X DELETE http://localhost:8090/ &>/dev/null &"
+   endif
+endfunction
+
+let g:im_server_state = "notstarted"
+let g:im_last_number_of_changes = -1
+
+autocmd BufEnter *.{md,mkd,mkdn,mark*} silent call IM_OpenMarkdown()
+autocmd InsertLeave *.{md,mkd,mkdn,mark*} silent call IM_UpdateMarkdown()
+autocmd VimLeavePre * silent call IM_CloseServer()
+autocmd BufWritePost *.{md,mkd,mkdn,mark*} silent call IM_UpdateMarkdown()
